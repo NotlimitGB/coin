@@ -1,154 +1,34 @@
-import {
-  Flex,
-  Form,
-  Select,
-  Space,
-  Typography,
-  Divider,
-  InputNumber,
-  Button,
-  DatePicker,
-  Result,
-} from "antd";
-import { useRef, useState } from "react";
-import { useCrypto } from "../../context/cryptoContext";
+import { useState } from 'react';
+import { Alert, Button, DatePicker, Form, InputNumber, Select } from 'antd';
+import dayjs from 'dayjs';
+import { useCrypto } from '../../context/cryptoContext';
 
-export default function AddAssetForm({ onClose }) {
-  const validateMessages = {
-    required: "${label} is required!",
-    types: {
-      number: "${label} is not a valid number!",
-    },
-    number: {
-      range: "${label} must be at least ${min}",
-    },
-  };
-  const [form] = Form.useForm();
-  const { crypto, addAsset } = useCrypto();
-  const [coin, setCoin] = useState("");
-  const [submitted, setSubmitted] = useState(false);
-  const assetRef = useRef(null);
-
-  if (submitted) {
-    return (
-      <Result
-        status="success"
-        title="New Asset Added Successfully!"
-        subTitle={`Added ${assetRef.current.amount} of ${coin.name} by price ${assetRef.current.price}$.`}
-        extra={[
-          <Button type="primary" key="console" onClick={onClose}>
-            close
-          </Button>,
-        ]}
-      />
-    );
+export default function AddAssetForm({ onClose, asset }) {
+  const { crypto, addAsset, editAsset, error } = useCrypto();
+  const [saving, setSaving] = useState(false);
+  async function save(values) {
+    setSaving(true);
+    const payload = { coin_id: values.coin_id, amount: values.amount.toFixed(8), price: values.price.toFixed(8), purchased_at: values.purchased_at.toDate().toISOString() };
+    const ok = asset ? await editAsset(asset.id, payload) : await addAsset(payload);
+    setSaving(false);
+    if (ok) onClose();
   }
-
-  const onFinish = (values) => {
-    const newAsset = {
-      id: coin.id,
-      amount: values.amount,
-      price: values.price,
-      date: values.dateTime?.$d ?? new Date(),
-    };
-    assetRef.current = newAsset;
-    setSubmitted(true);
-    addAsset(newAsset);
-  };
-  function hendleAmountChange(value) {
-    const price = form.getFieldValue("price");
-    form.setFieldsValue({
-      total: +(value * price).toFixed(2),
-    });
-  }
-  function hendlePriceChange(value) {
-    const amount = form.getFieldValue("amount");
-    form.setFieldsValue({
-      total: +(value * amount).toFixed(2),
-    });
-  }
-  if (!coin) {
-    return (
-      <Select
-        onSelect={(v) => setCoin(crypto.find((c) => c.id === v))}
-        placeholder="Select a coin"
-        style={{ width: "100%" }}
-        optionLabelProp="label"
-        options={crypto.map((coin) => ({
-          label: coin.name,
-          value: coin.id,
-          icon: coin.icon,
-        }))}
-        optionRender={(option) => (
-          <Space>
-            <img
-              style={{ width: 20 }}
-              src={option.data.icon}
-              alt={option.data.lable}
-            />
-            {option.data.label}
-          </Space>
-        )}
-      />
-    );
-  }
-  return (
-    <Form
-      form={form}
-      action=""
-      name="basic"
-      labelCol={{ span: 4 }}
-      wrapperCol={{ span: 10 }}
-      style={{ maxWidth: 600 }}
-      onFinish={onFinish}
-      validateMessages={validateMessages}
-      initialValues={{
-        price: +coin.price.toFixed(2),
-      }}
-    >
-      <Flex align="center">
-        <img
-          src={coin.icon}
-          alt={coin.name}
-          style={{ width: 40, marginRight: "10px" }}
-        />
-        <Typography.Title level={2} style={{ margin: 0 }}>
-          {coin.name}
-        </Typography.Title>
-      </Flex>
-      <Divider />
-
-      <Form.Item
-        label="Amount"
-        name="amount"
-        rules={[
-          {
-            required: true,
-            type: "number",
-            min: 0,
-          },
-        ]}
-      >
-        <InputNumber
-          placeholder="Ener coin amount"
-          onChange={hendleAmountChange}
-          style={{ width: "100%" }}
-        />
-      </Form.Item>
-      <Form.Item label="Price" name="price">
-        <InputNumber onChange={hendlePriceChange} style={{ width: "100%" }} />
-      </Form.Item>
-      <Form.Item label="Date & time" name="dateTime">
-        <DatePicker showTime></DatePicker>
-      </Form.Item>
-      <Form.Item label="Total" name="total">
-        <InputNumber disabled style={{ width: "100%" }} />
-      </Form.Item>
-      <Form.Item label={null}>
-        <Button type="primary" htmlType="submit">
-          Add Asset
-        </Button>
-      </Form.Item>
-    </Form>
-  );
+  return <Form layout="vertical" onFinish={save} initialValues={asset ? {
+    coin_id: asset.coin_id, amount: asset.amount, price: asset.price, purchased_at: dayjs(asset.purchased_at)
+  } : { purchased_at: dayjs() }}>
+    {error && <Alert type="error" showIcon message="Could not save purchase" description={error} />}
+    <Form.Item label="Coin" name="coin_id" rules={[{ required: true, message: 'Choose a coin' }]}>
+      <Select showSearch optionFilterProp="label" options={crypto.map(c => ({ value: c.id, label: c.name }))} />
+    </Form.Item>
+    <Form.Item label="Amount" name="amount" rules={[{ required: true, type: 'number', min: 0.00000001, message: 'Enter an amount greater than zero' }]}>
+      <InputNumber min={0.00000001} precision={8} style={{ width: '100%' }} />
+    </Form.Item>
+    <Form.Item label="Purchase price, USD" name="price" rules={[{ required: true, type: 'number', min: 0.00000001, message: 'Enter a price greater than zero' }]}>
+      <InputNumber min={0.00000001} precision={8} style={{ width: '100%' }} />
+    </Form.Item>
+    <Form.Item label="Purchase date and time" name="purchased_at" rules={[{ required: true, message: 'Choose a date and time' }]}>
+      <DatePicker showTime />
+    </Form.Item>
+    <Button type="primary" htmlType="submit" loading={saving}>{asset ? 'Save changes' : 'Add purchase'}</Button>
+  </Form>;
 }

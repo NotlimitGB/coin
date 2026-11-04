@@ -1,0 +1,35 @@
+services:
+  db:
+    image: mysql:8.0.44
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-coin-local-root}
+      MYSQL_DATABASE: coin
+      MYSQL_USER: coin
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-coin-local-password}
+    volumes:
+      - coin-db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+  db-init:
+    build: ./sql
+    environment:
+      MYSQL_PWD: ${MYSQL_PASSWORD:-coin-local-password}
+    entrypoint: ["sh", "-c", "mysql -h db -u coin coin < /docker-entrypoint-initdb.d/init.sql"]
+    depends_on:
+      db: { condition: service_healthy }
+    restart: on-failure
+  app:
+    build: .
+    environment:
+      DB_HOST: db
+      DB_NAME: coin
+      DB_USER: coin
+      DB_PASSWORD: ${MYSQL_PASSWORD:-coin-local-password}
+    ports: ["3000:3000"]
+    depends_on:
+      db-init: { condition: service_completed_successfully }
+volumes:
+  coin-db:

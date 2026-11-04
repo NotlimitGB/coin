@@ -13,9 +13,6 @@ const headerStyle = {
   justifyContent: "space-between",
   alignitems: "center",
 };
-const handleChange = (value) => {
-  console.log(`selected ${value}`);
-};
 
 export default function AppHeader() {
   const [select, setSelect] = useState(false);

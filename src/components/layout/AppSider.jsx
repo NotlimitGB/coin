@@ -17,7 +17,7 @@ export default function AppSider() {
       {assets.map((asset) => (
         <Card key={asset.id} style={{ marginBottom: "1rem" }}>
           <Statistic
-            title={copitalize(asset.id)}
+            title={copitalize(asset.coin_id)}
             value={asset.totalAmount}
             precision={2}
             valueStyle={{ color: asset.grow ? "#3f8600" : "#cf1322" }}

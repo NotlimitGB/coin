@@ -1,0 +1,10 @@
+# Replace the range with an unused range on the VM internal network.
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata: {name: coin-pool, namespace: metallb-system}
+spec: {addresses: ["192.168.0.200-192.168.0.210"]}
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata: {name: coin-l2, namespace: metallb-system}
+spec: {ipAddressPools: [coin-pool]}

@@ -1,0 +1,41 @@
+# Практическая работа Kubernetes: подготовка и последующие действия
+
+Кластер на текущем этапе не создавался. Примеры ниже предназначены для последующего выполнения на выделенных учебных ВМ; уточните значения адресов и интерфейсов перед применением. Все команды Kubernetes далее выполняются на master в пространстве `default`.
+
+## Образы
+
+Укажите свой логин Docker Hub вместо `YOUR_DOCKERHUB_USERNAME`, проверьте архитектуру Ubuntu ВМ (`uname -m`; для x86-64 — linux/amd64). На Windows после запуска Docker Desktop:
+
+```powershell
+cd C:\coin
+docker login
+docker build --platform linux/amd64 -t YOUR_DOCKERHUB_USERNAME/coin-app:lab-v1 .
+docker build --platform linux/amd64 -t YOUR_DOCKERHUB_USERNAME/coin-db-init:lab-v1 ./sql
+docker push YOUR_DOCKERHUB_USERNAME/coin-app:lab-v1
+docker push YOUR_DOCKERHUB_USERNAME/coin-db-init:lab-v1
+```
+
+Перед `push` убедитесь, что это ваш аккаунт. Замените `dockerhub-user` в `temp-pod.yaml`, `db-loader.yaml` и `app-deployment.yaml` на свой логин. Для ARM64 используйте совместимые образы и платформу, проверив поддержку PXC/ProxySQL отдельно.
+
+## Виртуальные машины и Kubernetes
+
+1. Создайте одну Ubuntu 22.04 ВМ. Методичка предлагает минимум 2 CPU, 2,56 ГБ ОЗУ и 20 ГБ диска, NAT и внутреннюю сеть. Это минимум ВМ, а не гарантия достаточности ресурсов для PXC, ProxySQL и Kubernetes; при нехватке памяти увеличьте её. До клонирования установите обновления, `curl`, `git`, containerd, kubeadm, kubelet, kubectl, Helm и совместимый CRI. Согласуйте версии по [матрице Percona](https://docs.percona.com/percona-operator-for-xtradb-cluster/latest/System-Requirements.html) и официальным инструкциям [kubeadm](https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/install-kubeadm/). Отключите swap по инструкции Kubernetes и проверьте конфигурацию containerd с systemd cgroup. Учебный `curl | sudo bash` сначала скачайте и прочитайте, а не запускайте вслепую.
+2. Полностью клонируйте ВМ дважды с новыми MAC адресами. У каждой должен быть уникальный machine-id и SSH host keys; убедитесь также в уникальности product_uuid.
+3. Назначьте уникальные адреса внутренней сети и hostname `master`, `worker1`, `worker2`, пропишите их в `/etc/hosts` на всех ВМ. Примеры методички 192.168.0.1–3 нужно сверить с сетью. Сохраните работающий NAT. Проверьте `ping` между именами.
+4. На master выполните `sudo kubeadm init --pod-network-cidr=10.244.0.0/16 --apiserver-advertise-address=<IP_MASTER>`, предварительно проверив CIDR выбранного CNI и отсутствие пересечений. Сохраните выданную `kubeadm join` команду. Настройте kubeconfig согласно выводу kubeadm. `/24` в методичке может не дать достаточно подсетей для нескольких узлов и не является универсальным значением.
+5. Установите совместимый CNI по его официальной инструкции. Weave Net 2.8.1 из методички [архивирован](https://github.com/weaveworks/weave) и его совместимость с выбранным Kubernetes не гарантирована. Вместо него используйте поддерживаемую версию Flannel или Calico с подходящим pod CIDR; согласуйте замену с преподавателем. Дождитесь готовности системных Pod.
+6. Выполните выданную `sudo kubeadm join ...` на worker1 и worker2. На master проверьте `kubectl get nodes -o wide`. Добавьте worker-метки командами `kubectl label node worker1 node-role.kubernetes.io/worker=` и аналогично worker2. Для трёх PXC на трёх узлах в учебной среде потребуется разрешить размещение на master: `kubectl taint nodes master node-role.kubernetes.io/control-plane:NoSchedule-`. Это уменьшает изоляцию control plane.
+7. Клонируйте Coin в master и перейдите в `coin`. Добавьте Helm-репозиторий `helm repo add percona https://percona.github.io/percona-helm-charts/` и выполните `helm repo update`. Найдите версию chart, соответствующую оператору 1.20.0: `helm search repo percona/pxc-operator --versions`. Установите её с явным `--version <CHART_VERSION>`: `helm install pxc-operator percona/pxc-operator --version <CHART_VERSION> -n default`. Дождитесь оператора и CRD. Chart version и версия оператора не обязательно совпадают: проверьте `helm show chart` и image до установки.
+8. Создайте секреты, не записывая реальные пароли в Git. В Linux используйте `read -rs COIN_PASSWORD; echo`, затем `kubectl create secret generic coin-db --from-literal=password="$COIN_PASSWORD"; unset COIN_PASSWORD`. Для системных пользователей используйте [официальные ключи секрета Percona 1.20](https://docs.percona.com/percona-operator-for-xtradb-cluster/latest/users.html); сгенерируйте разные случайные значения root, xtrabackup, monitor, clustercheck, proxyadmin, operator и replication и создайте `cluster1-secrets` согласно документации. Не используйте пароли `secret` из методички.
+9. Создайте `/data/pxc` на каждой ВМ с владельцем и правами, соответствующими UID/GID контейнера PXC. Не используйте `chmod 777`. Проверьте имена нод в `k8s/local-storage.yaml`, затем `kubectl apply -f k8s/local-storage.yaml`. `Retain` сохраняет данные на диске при удалении PVC; локальные PV не перемещаются на другой узел.
+10. Примените `kubectl apply -f k8s/percona-xtradb-cluster.yaml` и дождитесь готовности `kubectl get pxc,pods,pvc -w`. Оператор создаёт БД coin и пользователя из `spec.users`; CREATE требуется Job. Подтвердите, что пользователь доступен через ProxySQL для выбранной версии. Затем примените `k8s/mysql-proxysql-svc.yaml` и `k8s/db-externalname.yaml`. Проверьте `kubectl get endpoints mysql-proxysql`: там должны быть оба готовых ProxySQL. DNS `db` рассчитан на namespace default и cluster domain cluster.local; измените alias при иной конфигурации.
+11. `kubectl apply -f k8s/temp-pod.yaml`, затем `kubectl exec temp-sql -- cat /docker-entrypoint-initdb.d/init.sql`; удалите диагностический pod `kubectl delete pod temp-sql`.
+12. `kubectl apply -f k8s/db-loader.yaml`; дождитесь `kubectl wait --for=condition=complete job/db-loader --timeout=10m` и проверьте `kubectl logs job/db-loader`. При повторном запуске удалите завершённую Job и создайте заново; SQL идемпотентен для существующей таблицы, но не является системой миграций.
+13. `kubectl apply -f k8s/app-deployment.yaml`; проверьте `kubectl get pods -o wide`, `kubectl get svc coin-app`. Предпочтительное разнесение реплик не является гарантией. Readiness зависит от доступности таблицы, liveness — только от процесса.
+14. Установите совместимую стабильную версию MetalLB по [официальной инструкции](https://metallb.io/installation/). Если kube-proxy использует IPVS, проверьте strictARP. Измените в `k8s/metallb-config.yaml` пример пула на свободный диапазон одной L2-сети, доступной клиентскому компьютеру; внутренняя сеть VirtualBox может быть недоступна Windows-хосту. Примените конфигурацию и проверьте `kubectl get svc coin-app`.
+15. Откройте внешний IP, создайте, прочитайте, измените и удалите покупки, включая две покупки одной монеты; обновите страницу и проверьте сохранение. Публичные котировки демонстрационные.
+16. Только после сохранения контрольной записи и резервной копии поочерёдно отключайте worker2 и worker1, проверяйте `kubectl get nodes,pods -o wide`, доступность интерфейса и CRUD; затем возвращайте ВМ и проверяйте данные и синхронизацию PXC. Фиксируйте фактическое время восстановления, не гарантируйте цифры из методички. Потеря большинства PXC означает потерю кворума; локальный PV не перенесёт данные на другую ноду. Один control-plane остаётся единой точкой отказа.
+
+## Восстановление PXC и риск учебного скрипта
+
+Оригинальный [pxc-auto-recover.yaml](https://github.com/isitunecon/kubernetes/blob/main/pxc-auto-recover.yaml) раз в минуту на каждой ноде отправляет `USR1` всем Running PXC Pod, не проверяя кворум, состояние базы или актуальный seqno; RBAC даёт доступ к exec во всём кластере, используется непредсказуемый `latest`. Это может нарушить штатное восстановление и создать риск потери данных. Не применяйте его. В данном примере включён `pxc.autoRecovery` штатного оператора, см. [Percona Crash Recovery](https://docs.percona.com/percona-operator-for-xtradb-cluster/latest/recovery.html). При полной потере кворума следуйте документации оператора, не выполняйте принудительный bootstrap на произвольном узле. Согласуйте отклонение от методички с преподавателем. Ни автоматическое восстановление, ни отказоустойчивость здесь не проверены.

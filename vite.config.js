@@ -1,8 +1,6 @@
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
-
-// https://vite.dev/config/
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
 export default defineConfig({
-  plugins: [react()],
-  base: "/coin/",
+  plugins: [react()], base: process.env.VITE_BASE || '/coin/',
+  server: { proxy: { '/api': 'http://localhost:3000', '/health': 'http://localhost:3000' } },
 });

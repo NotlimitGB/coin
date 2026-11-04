@@ -1,69 +1,38 @@
-import { createContext, useEffect, useState } from "react";
-import { fetchAssets, fetchCrypto } from "../api";
-import { percentdiff } from "../utils";
-import { useContext } from "react";
+import { createContext, useContext, useEffect, useState } from 'react';
+import { fetchAssets, fetchCrypto, createAsset, updateAsset, deleteAsset } from '../api';
+import { percentdiff } from '../utils';
 
-const CryptoContext = createContext({
-  crypto: [],
-  assets: [],
-  loading: false,
-});
-
+const CryptoContext = createContext({ crypto: [], assets: [], loading: false });
 export function CryptoContextProvider({ children }) {
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [crypto, setCrypto] = useState([]);
-  const [assets, setAssets] = useState([]);
-
-  function mapAssets(asset, result) {
-    return asset.map((asset) => {
-      const coin = result.find((c) => c.id === asset.id);
-      if (!coin)
-        return {
-          ...asset,
-          grow: false,
-          growPercent: 0,
-          totalAmount: 0,
-          totalProfit: 0,
-        };
-
-      return {
-        grow: asset.price < coin.price,
-        growPercent: percentdiff(asset.price, coin.price),
-        totalAmount: asset.amount * coin.price,
-        totalProfit: (coin.price - asset.price) * asset.amount,
-        name: coin.name,
-        ...asset,
-      };
-    });
+  const [purchases, setPurchases] = useState([]);
+  const [error, setError] = useState('');
+  async function reload() {
+    setError('');
+    try { setPurchases(await fetchAssets()); }
+    catch (err) { setError(err.message); }
   }
-
   useEffect(() => {
-    async function preload() {
-      setLoading(true);
-      const { result } = await fetchCrypto();
-      const assetsData = await fetchAssets();
-
-      setAssets(mapAssets(assetsData, result));
-
-      setCrypto(result);
-      setLoading(false);
-    }
-
-    preload();
+    fetchCrypto().then(({ result }) => setCrypto(result));
+    fetchAssets().then(setPurchases).catch(err => setError(err.message)).finally(() => setLoading(false));
   }, []);
-
-  function addAsset(newAsset) {
-    setAssets((prev) => mapAssets([...prev, newAsset], crypto));
+  async function action(fn) {
+    setError('');
+    try { await fn(); await reload(); return true; }
+    catch (err) { setError(err.message); return false; }
   }
-
-  return (
-    <CryptoContext.Provider value={{ loading, crypto, assets, addAsset }}>
-      {children}
-    </CryptoContext.Provider>
-  );
+  const assets = purchases.map(asset => {
+    const coin = crypto.find(c => c.id === asset.coin_id);
+    const amount = Number(asset.amount), price = Number(asset.price);
+    return { ...asset, amount, price, name: coin?.name || asset.coin_id,
+      grow: !!coin && price < coin.price, growPercent: coin ? percentdiff(price, coin.price) : 0,
+      totalAmount: coin ? amount * coin.price : 0, totalProfit: coin ? (coin.price - price) * amount : 0 };
+  });
+  return <CryptoContext.Provider value={{ crypto, assets, loading, error, reload,
+    addAsset: data => action(() => createAsset(data)),
+    editAsset: (id, data) => action(() => updateAsset(id, data)),
+    removeAsset: id => action(() => deleteAsset(id)) }}>{children}</CryptoContext.Provider>;
 }
 export default CryptoContext;
-
-export function useCrypto() {
-  return useContext(CryptoContext);
-}
+export const useCrypto = () => useContext(CryptoContext);

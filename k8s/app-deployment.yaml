@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: coin-app}
+spec:
+  replicas: 2
+  selector: {matchLabels: {app: coin-app}}
+  template:
+    metadata: {labels: {app: coin-app}}
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector: {matchLabels: {app: coin-app}}
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: app
+          image: dockerhub-user/coin-app:lab-v1
+          ports: [{name: http, containerPort: 3000}]
+          env:
+            - {name: DB_HOST, value: db}
+            - {name: DB_NAME, value: coin}
+            - {name: DB_USER, value: coin}
+            - name: DB_PASSWORD
+              valueFrom: {secretKeyRef: {name: coin-db, key: password}}
+          readinessProbe: {httpGet: {path: /health/ready, port: http}, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /health/live, port: http}, initialDelaySeconds: 10, periodSeconds: 10}
+          resources:
+            requests: {cpu: 50m, memory: 96Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: coin-app}
+spec:
+  type: LoadBalancer
+  selector: {app: coin-app}
+  ports: [{name: http, port: 80, targetPort: http}]

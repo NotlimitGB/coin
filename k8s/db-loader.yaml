@@ -1,0 +1,19 @@
+apiVersion: batch/v1
+kind: Job
+metadata: {name: db-loader}
+spec:
+  backoffLimit: 8
+  activeDeadlineSeconds: 600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: loader
+          image: dockerhub-user/coin-db-init:lab-v1
+          command: ["sh", "-c", "mysql -h db -u coin coin < /docker-entrypoint-initdb.d/init.sql"]
+          env:
+            - name: MYSQL_PWD
+              valueFrom: {secretKeyRef: {name: coin-db, key: password}}
+          resources:
+            requests: {cpu: 25m, memory: 32Mi}
+            limits: {cpu: 200m, memory: 128Mi}
