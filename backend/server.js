@@ -1,6 +1,7 @@
 import express from 'express';
 import mysql from 'mysql2/promise';
 import path from 'node:path';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const app = express();
@@ -61,8 +62,12 @@ app.delete('/api/assets/:id', run(async (req, res) => {
 }));
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }));
 const dist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../dist');
-app.use(express.static(dist));
-app.get('*', (_req, res) => res.sendFile(path.join(dist, 'index.html')));
+if (existsSync(path.join(dist, 'index.html'))) {
+  app.use(express.static(dist));
+  app.get('*', (_req, res) => res.sendFile(path.join(dist, 'index.html')));
+} else {
+  app.use((_req, res) => res.status(404).json({ error: 'Not found' }));
+}
 app.use((err, _req, res, _next) => {
   if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'Invalid JSON' });
   console.error(err); return res.status(err.status === 413 ? 413 : 503).json({ error: 'Request could not be completed' });

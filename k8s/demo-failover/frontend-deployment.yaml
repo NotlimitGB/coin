@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coin-demo-frontend
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: coin-demo-frontend}
+  template:
+    metadata:
+      labels: {app: coin-demo-frontend}
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: worker1
+      containers:
+        - name: frontend
+          image: notlimitgb/coin-frontend:failover-v1
+          imagePullPolicy: IfNotPresent
+          ports: [{name: http, containerPort: 8080}]
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 20m, memory: 32Mi}
+            limits: {cpu: 250m, memory: 128Mi}
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/templates/default.conf.template
+              subPath: default.conf.template
+              readOnly: true
+      volumes:
+        - name: nginx-config
+          configMap: {name: coin-demo-nginx}

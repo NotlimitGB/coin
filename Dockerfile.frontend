@@ -1,0 +1,15 @@
+FROM node:24-alpine AS build
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY index.html vite.config.js ./
+COPY public ./public
+COPY src ./src
+RUN VITE_BASE=/ npm run build
+
+FROM nginx:1.28-alpine
+ENV NGINX_ENTRYPOINT_LOCAL_RESOLVERS=1 \
+    NGINX_ENVSUBST_FILTER=^NGINX_LOCAL_RESOLVERS$
+COPY --from=build /app/dist /usr/share/nginx/html
+COPY k8s/demo-failover/default.conf.template /etc/nginx/templates/default.conf.template
+EXPOSE 8080

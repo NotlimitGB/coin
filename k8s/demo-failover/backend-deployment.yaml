@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coin-demo-backend
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: coin-demo-backend}
+  template:
+    metadata:
+      labels: {app: coin-demo-backend}
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values: [worker1, worker2]
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values: [worker2]
+      tolerations:
+        - {key: node.kubernetes.io/not-ready, operator: Exists, effect: NoExecute, tolerationSeconds: 30}
+        - {key: node.kubernetes.io/unreachable, operator: Exists, effect: NoExecute, tolerationSeconds: 30}
+      containers:
+        - name: backend
+          image: notlimitgb/coin-backend:failover-v1
+          imagePullPolicy: IfNotPresent
+          ports: [{name: http, containerPort: 3000}]
+          env:
+            - {name: DB_HOST, value: db}
+            - {name: DB_PORT, value: '3306'}
+            - {name: DB_NAME, value: coin}
+            - {name: DB_USER, value: coin}
+            - name: DB_PASSWORD
+              valueFrom: {secretKeyRef: {name: coin-db, key: password}}
+          readinessProbe:
+            httpGet: {path: /health/ready, port: http}
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet: {path: /health/live, port: http}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 50m, memory: 96Mi}
+            limits: {cpu: 500m, memory: 256Mi}
